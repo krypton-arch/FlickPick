@@ -58,8 +58,8 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 /**
- * FlickPick Material 3 theme supporting both light and dark modes.
- * Uses a cinematic red primary color with Poppins typography.
+ * FlickPick Material 3 theme — cinematic dark-first design with
+ * amber/gold primary accent and Poppins typography.
  */
 @Composable
 fun FlickpickTheme(
@@ -72,7 +72,8 @@ fun FlickpickTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.surface.toArgb()
+            // Immersive dark status bar for cinematic feel
+            window.statusBarColor = colorScheme.background.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }

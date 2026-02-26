@@ -1,5 +1,6 @@
 package com.example.flickpick.data.remote
 
+import com.example.flickpick.data.model.GenreListResponseDto
 import com.example.flickpick.data.model.MovieDetailDto
 import com.example.flickpick.data.model.MovieResponseDto
 import retrofit2.http.GET
@@ -36,4 +37,15 @@ interface ApiService {
     suspend fun getMovieDetail(
         @Path("movie_id") movieId: Int
     ): MovieDetailDto
+
+    /** Fetches the list of all official movie genres. */
+    @GET("genre/movie/list")
+    suspend fun getGenreList(): GenreListResponseDto
+
+    /** Discovers movies filtered by [genreId]. */
+    @GET("discover/movie")
+    suspend fun discoverMoviesByGenre(
+        @Query("with_genres") genreId: Int,
+        @Query("page") page: Int = 1
+    ): MovieResponseDto
 }

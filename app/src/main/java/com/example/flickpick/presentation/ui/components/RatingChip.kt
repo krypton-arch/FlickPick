@@ -12,13 +12,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 
 /**
- * A small chip displaying a star icon and rating value.
- *
- * @param rating The movie rating (0-10 scale).
+ * Glassmorphism-styled rating chip.
+ * Semi-transparent dark background with white text for use on poster overlays.
  */
 @Composable
 fun RatingChip(
@@ -27,14 +27,14 @@ fun RatingChip(
 ) {
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.65f))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = "⭐",
-            style = MaterialTheme.typography.bodySmall
+            style = MaterialTheme.typography.labelSmall
         )
 
         Spacer(modifier = Modifier.width(4.dp))
@@ -42,7 +42,7 @@ fun RatingChip(
         Text(
             text = String.format(Locale.US, "%.1f", rating),
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer
+            color = Color.White
         )
     }
 }

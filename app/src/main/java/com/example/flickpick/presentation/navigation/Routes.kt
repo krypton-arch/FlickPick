@@ -6,6 +6,7 @@ package com.example.flickpick.presentation.navigation
 object Routes {
     const val HOME = "home"
     const val SEARCH = "search"
+    const val FAVOURITES = "favourites"
     const val DETAIL = "detail/{movieId}"
 
     /** Builds a detail route for the given [movieId]. */

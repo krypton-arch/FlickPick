@@ -2,21 +2,26 @@ package com.example.flickpick.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import com.example.flickpick.domain.model.Movie
 import com.example.flickpick.domain.repository.MovieRepository
-import com.example.flickpick.util.UiState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
  * ViewModel for the Search screen.
- * Debounces user input and triggers search queries against the repository.
+ * Debounces user input and triggers paged search queries.
  */
 @HiltViewModel
 class SearchViewModel @Inject constructor(
@@ -27,11 +32,20 @@ class SearchViewModel @Inject constructor(
     /** Current search query text. */
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _searchResults = MutableStateFlow<UiState<List<Movie>>>(UiState.Success(emptyList()))
-    /** State of the search results. */
-    val searchResults: StateFlow<UiState<List<Movie>>> = _searchResults.asStateFlow()
+    private val _debouncedQuery = MutableStateFlow("")
 
     private var searchJob: Job? = null
+
+    /** Paged search results, re-triggered when debounced query changes. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val searchResults: Flow<PagingData<Movie>> = _debouncedQuery
+        .flatMapLatest { query ->
+            if (query.isBlank()) {
+                flowOf(PagingData.empty())
+            } else {
+                movieRepository.searchMovies(query)
+            }
+        }.cachedIn(viewModelScope)
 
     /** Updates the search query and triggers a debounced search. */
     fun onQueryChanged(query: String) {
@@ -39,15 +53,13 @@ class SearchViewModel @Inject constructor(
         searchJob?.cancel()
 
         if (query.isBlank()) {
-            _searchResults.value = UiState.Success(emptyList())
+            _debouncedQuery.value = ""
             return
         }
 
         searchJob = viewModelScope.launch {
-            delay(300L) // Debounce
-            movieRepository.searchMovies(query).collect { state ->
-                _searchResults.value = state
-            }
+            delay(300L)
+            _debouncedQuery.value = query
         }
     }
 }

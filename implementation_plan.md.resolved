@@ -1,0 +1,256 @@
+# FlickPick — Future Enhancements Implementation Plan
+
+Implementing the 4 future enhancements listed in the README (excluding Multi-module, which is a refactoring concern):
+1. **Room** — Offline caching
+2. **Paging 3** — Infinite scroll for movie lists
+3. **Favourites** — Save and manage favourite movies
+4. **Genre Filter** — Filter by genre on home screen
+
+## User Review Required
+
+- Multi-module splitting is excluded since it's a structural refactoring, not a feature. Please confirm this is acceptable.
+- Room will use `kapt` (matching the existing Hilt setup). Migrating to KSP is a separate effort.
+
+---
+
+## Proposed Changes
+
+### Dependencies
+
+#### [libs.versions.toml](file:///c:/Users/User/AndroidStudioProjects/flickpick/gradle/libs.versions.toml)
+
+Add versions and library entries:
+```toml
+# New versions
+paging = "3.3.2"
+room = "2.6.1"
+
+# New libraries
+paging-runtime = { group = "androidx.paging", name = "paging-runtime", version.ref = "paging" }
+paging-compose = { group = "androidx.paging", name = "paging-compose", version.ref = "paging" }
+room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+room-paging = { group = "androidx.room", name = "room-paging", version.ref = "room" }
+```
+
+#### [build.gradle.kts](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/build.gradle.kts)
+
+Add implementation/kapt dependencies for the new libraries.
+
+---
+
+### Data Layer — Room Entities & Database
+
+#### [NEW] [MovieEntity.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/local/entity/MovieEntity.kt)
+
+Room entity for caching movie list items. Fields: [id](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/ui/screens/HomeScreen.kt#120-147) (PK), `title`, `posterPath`, `voteAverage`, `releaseDate`, `overview`, `category` (popular/top_rated/genre), `page`, `insertedAt`.
+
+#### [NEW] [GenreEntity.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/local/entity/GenreEntity.kt)
+
+Room entity for the genre list. Fields: [id](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/ui/screens/HomeScreen.kt#120-147) (PK), `name`.
+
+#### [NEW] [FavouriteEntity.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/local/entity/FavouriteEntity.kt)
+
+Room entity for favourite movies. Fields: `movieId` (PK), `title`, `posterPath`, `voteAverage`, `releaseDate`, `overview`, `addedAt`.
+
+#### [NEW] [RemoteKeyEntity.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/local/entity/RemoteKeyEntity.kt)
+
+Tracks the next page number per category for Paging 3's `RemoteMediator`. Fields: `category` (PK), `nextPage`.
+
+#### [NEW] [MovieDao.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/local/dao/MovieDao.kt)
+
+- `getMoviesByCategory(category): PagingSource<Int, MovieEntity>` — for Paging
+- `insertAll(movies)`, `clearByCategory(category)`
+
+#### [NEW] [GenreDao.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/local/dao/GenreDao.kt)
+
+- `getAllGenres(): Flow<List<GenreEntity>>`, `insertAll(genres)`, `clearAll()`
+
+#### [NEW] [FavouriteDao.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/local/dao/FavouriteDao.kt)
+
+- `getAllFavourites(): Flow<List<FavouriteEntity>>`
+- `insertFavourite(favourite)`, `deleteFavourite(movieId)`
+- `isFavourite(movieId): Flow<Boolean>`
+
+#### [NEW] [RemoteKeyDao.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/local/dao/RemoteKeyDao.kt)
+
+- `getRemoteKey(category)`, `insertOrReplace(key)`, `clearByCategory(category)`
+
+#### [NEW] [FlickPickDatabase.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/local/FlickPickDatabase.kt)
+
+`@Database` with entities array, DAOs as abstract functions.
+
+---
+
+### Data Layer — Paging 3
+
+#### [NEW] [MovieRemoteMediator.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/paging/MovieRemoteMediator.kt)
+
+`RemoteMediator<Int, MovieEntity>` that fetches from TMDB API and writes to Room. Handles `REFRESH`, `PREPEND` (returns `MediatorResult.Success(endOfPaginationReached = true)`), and `APPEND` (loads next page from TMDB, stores in Room/RemoteKey).
+
+#### [NEW] [SearchPagingSource.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/paging/SearchPagingSource.kt)
+
+`PagingSource<Int, Movie>` for search results (network-only, since search doesn't benefit from caching). Calls `apiService.searchMovies(query, page)`.
+
+---
+
+### Data Layer — API / DTOs
+
+#### [ApiService.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/remote/ApiService.kt)
+
+Add two new endpoints:
+```kotlin
+@GET("genre/movie/list")
+suspend fun getGenreList(): GenreListResponseDto
+
+@GET("discover/movie")
+suspend fun discoverMoviesByGenre(
+    @Query("with_genres") genreId: Int,
+    @Query("page") page: Int = 1
+): MovieResponseDto
+```
+
+#### [NEW] [GenreListResponseDto.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/model/GenreListResponseDto.kt)
+
+Wraps the `genres: List<GenreDto>` response from TMDB.
+
+---
+
+### Data Layer — Mapper
+
+#### [MovieDtoMapper.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/mapper/MovieDtoMapper.kt)
+
+Add extension functions:
+- `MovieDto.toEntity(category, page): MovieEntity`
+- `MovieEntity.toDomain(): Movie`
+- `FavouriteEntity.toDomain(): Movie`
+- `GenreDto.toEntity(): GenreEntity`
+- `GenreEntity.toDomain(): Genre`
+
+---
+
+### Domain Layer
+
+#### [NEW] [Genre.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/domain/model/Genre.kt)
+
+```kotlin
+data class Genre(val id: Int, val name: String)
+```
+
+#### [MovieRepository.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/domain/repository/MovieRepository.kt)
+
+Replace `Flow<UiState<List<Movie>>>` returns with `Flow<PagingData<Movie>>` for popular/top-rated/discover. Add:
+- `getGenres(): Flow<UiState<List<Genre>>>`
+- `discoverByGenre(genreId): Flow<PagingData<Movie>>`
+- `getFavourites(): Flow<List<Movie>>`
+- `toggleFavourite(movie)` / `isFavourite(movieId): Flow<Boolean>`
+- Search remains [searchMovies(query): Flow<PagingData<Movie>>](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/domain/repository/MovieRepository.kt#20-22)
+
+---
+
+### Data Layer — Repository
+
+#### [MovieRepositoryImpl.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/repository/MovieRepositoryImpl.kt)
+
+- Inject `FlickPickDatabase` in addition to [ApiService](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/remote/ApiService.kt#13-40)
+- [getPopularMovies()](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/domain/repository/MovieRepository.kt#14-16) → use `Pager(remoteMediator = MovieRemoteMediator)` + Room PagingSource
+- [getTopRatedMovies()](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/remote/ApiService.kt#21-26) → same pattern with "top_rated" category
+- `discoverByGenre(genreId)` → same pattern with "genre_{id}" category
+- [searchMovies()](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/domain/repository/MovieRepository.kt#20-22) → use `Pager(pagingSourceFactory = SearchPagingSource(...))`
+- `getGenres()` → fetch from API, cache in Room, emit from Room
+- `getFavourites()` → query from FavouriteDao
+- `toggleFavourite()` → insert/delete from FavouriteDao
+- `isFavourite()` → from FavouriteDao
+- [getMovieDetail()](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/data/remote/ApiService.kt#34-39) remains unchanged (single-fetch, no paging)
+
+---
+
+### DI
+
+#### [NEW] [DatabaseModule.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/di/DatabaseModule.kt)
+
+Provides `FlickPickDatabase` (Room.databaseBuilder), `MovieDao`, `GenreDao`, `FavouriteDao`, `RemoteKeyDao`.
+
+---
+
+### Presentation — ViewModels
+
+#### [HomeViewModel.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/viewmodel/HomeViewModel.kt)
+
+- Switch from `StateFlow<UiState<List<Movie>>>` to `Flow<PagingData<Movie>>` with `.cachedIn(viewModelScope)`
+- Add genre list state (`StateFlow<UiState<List<Genre>>>`)
+- Add `selectedGenreId: StateFlow<Int?>` (null = no filter)
+- Add `genreMovies: Flow<PagingData<Movie>>` triggered by genre selection
+
+#### [SearchViewModel.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/viewmodel/SearchViewModel.kt)
+
+- Switch search results to `Flow<PagingData<Movie>>`
+
+#### [DetailViewModel.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/viewmodel/DetailViewModel.kt)
+
+- Add `isFavourite: StateFlow<Boolean>`
+- Add `toggleFavourite()` method
+
+#### [NEW] [FavouritesViewModel.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/viewmodel/FavouritesViewModel.kt)
+
+Exposes `favourites: StateFlow<List<Movie>>` from the repository.
+
+---
+
+### Presentation — Screens
+
+#### [HomeScreen.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/ui/screens/HomeScreen.kt)
+
+- Replace `LazyVerticalGrid(items = movies)` with `LazyVerticalGrid` using `LazyPagingItems`
+- Add genre filter row: horizontal `LazyRow` of `FilterChip`s above the movie grid
+- Handle `loadState` for loading/error states
+
+#### [SearchScreen.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/ui/screens/SearchScreen.kt)
+
+- Replace `LazyColumn(items = movies)` with `LazyPagingItems`
+- Handle `loadState` for loading/error/empty states
+
+#### [DetailScreen.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/ui/screens/DetailScreen.kt)
+
+- Add favourite FAB/IconButton (heart icon) to toggle favourite
+
+#### [NEW] [FavouritesScreen.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/ui/screens/FavouritesScreen.kt)
+
+Grid view of favourite movies, similar to HomeScreen layout. Shows empty state when no favourites.
+
+---
+
+### Navigation
+
+#### [Routes.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/navigation/Routes.kt)
+
+Add `const val FAVOURITES = "favourites"`.
+
+#### [AppNavGraph.kt](file:///c:/Users/User/AndroidStudioProjects/flickpick/app/src/main/java/com/example/flickpick/presentation/navigation/AppNavGraph.kt)
+
+- Add Favourites to `bottomNavItems` (with `Icons.Default.Favorite`)
+- Add `composable(Routes.FAVOURITES)` route
+
+---
+
+## Verification Plan
+
+### Build Verification
+Since this is an Android project without a connected device/emulator in the current environment, the primary verification is a successful Gradle build:
+
+```bash
+cd c:\Users\User\AndroidStudioProjects\flickpick
+.\gradlew.bat assembleDebug 2>&1 | Select-Object -Last 30
+```
+
+This verifies all files compile, Room schema generates correctly, Hilt DI graph resolves, and all Paging integrations type-check.
+
+### Manual Verification (by user)
+After the build succeeds, the user should:
+1. **Run the app** on an emulator/device
+2. **Home screen**: Verify infinite scroll — scroll down past the first page of popular movies, new movies should auto-load
+3. **Genre filter**: Tap a genre chip on the Home screen, verify movies reload filtered by that genre
+4. **Detail screen**: Tap a movie, verify the favourite heart icon appears. Tap it to toggle — it should fill/unfill
+5. **Favourites tab**: Navigate to the Favourites bottom tab — verify saved movies appear there
+6. **Offline**: Turn off network, restart app — verify cached popular/top-rated movies still load from Room
